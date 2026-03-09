@@ -42,8 +42,8 @@ if _is_hip:
     from sgl_kernel import apply_token_bitmask_inplace_cuda
 else:
     from sglang.srt.constrained.triton_ops.bitmask_ops import (
-        apply_token_bitmask_inplace_triton,
         apply_token_bitmask_inplace_torch_npu,
+        apply_token_bitmask_inplace_triton,
     )
 
 
@@ -105,10 +105,7 @@ class XGrammarGrammar(BaseGrammarObject):
         return vocab_mask.to(device, non_blocking=True)
 
     def apply_vocab_mask(self, logits: torch.Tensor, vocab_mask: torch.Tensor) -> None:
-        if (
-            logits.device.type == "cuda"
-            or logits.device.type == "xpu"
-        ):
+        if logits.device.type == "cuda" or logits.device.type == "xpu":
             if _is_hip:
                 apply_token_bitmask_inplace_cuda(logits, vocab_mask)
             else:
