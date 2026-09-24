@@ -50,6 +50,12 @@ _PUBLIC_OVERRIDE_FIELDS = {
 
 @dataclass
 class SenseNovaU1SamplingParams(SamplingParams):
+    @classmethod
+    def image_request_extra_fields(cls) -> frozenset[str]:
+        return super().image_request_extra_fields() | frozenset(
+            {"profile", "profile_all_stages", "num_profiled_timesteps"}
+        )
+
     data_type: DataType = field(default=DataType.IMAGE, init=False)
     height: int = 2048
     width: int = 2048
