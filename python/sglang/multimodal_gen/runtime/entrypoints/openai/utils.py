@@ -449,6 +449,7 @@ async def process_generation_batch(
     batch,
     *,
     scheduler_batches=None,
+    report_out_of_memory: bool = False,
 ) -> tuple[list[str], OutputBatch]:
     total_start_time = time.perf_counter()
     with trace_req(batch.trace_ctx), log_generation_timer(logger, batch.prompt):
@@ -462,6 +463,24 @@ async def process_generation_batch(
             and result.raw_frame_batches is None
         ):
             error_msg = result.error or "Unknown error"
+            if report_out_of_memory and any(
+                marker in error_msg.lower()
+                for marker in ("npu out of memory", "cuda out of memory")
+            ):
+                raise HTTPException(
+                    status_code=500,
+                    detail=[
+                        {
+                            "type": "out_of_memory",
+                            "loc": [],
+                            "msg": (
+                                "Image processing failed because the inference "
+                                "device ran out of memory."
+                            ),
+                            "ctx": {"request_id": batch.request_id},
+                        }
+                    ],
+                )
             raise RuntimeError(
                 f"Model generation returned no output. Error from scheduler: {error_msg}"
             )

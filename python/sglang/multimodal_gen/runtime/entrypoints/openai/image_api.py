@@ -357,7 +357,7 @@ async def generations(
             batch.extra["diffusers_kwargs"] = request.diffusers_kwargs
 
         save_file_path_list, result = await process_generation_batch(
-            async_scheduler_client, batch
+            async_scheduler_client, batch, report_out_of_memory=True
         )
         save_file_path = save_file_path_list[0]
         response_resize = _get_response_resize(sampling, save_file_path)
@@ -519,7 +519,7 @@ async def edits(
             external_trace_header=trace_headers,
         )
         save_file_path_list, result = await process_generation_batch(
-            async_scheduler_client, batch
+            async_scheduler_client, batch, report_out_of_memory=True
         )
         save_file_path = save_file_path_list[0]
         response_resize = _get_response_resize(sampling, save_file_path)
