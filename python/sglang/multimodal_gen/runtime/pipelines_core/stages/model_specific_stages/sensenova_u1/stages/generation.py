@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 logger = init_logger(__name__)
 
 DEFAULT_INPUT_MAX_PIXELS = 2048 * 2048
+DEFAULT_MULTI_IMAGE_PIXEL_BUDGET = 2 * 1536 * 1536
 
 
 def _get_cache_dit_attention_type(transformer: torch.nn.Module) -> str:
@@ -76,11 +77,9 @@ def _auto_input_max_pixels(num_images: int) -> int:
         raise ValueError(
             "SenseNova-U1 image editing requires at least one input image."
         )
-    full_resolution_image_budget = 2
-    if num_images <= full_resolution_image_budget:
+    if num_images == 1:
         return DEFAULT_INPUT_MAX_PIXELS
-    total_budget = full_resolution_image_budget * DEFAULT_INPUT_MAX_PIXELS
-    return max(MIN_INPUT_MAX_PIXELS, total_budget // num_images)
+    return max(MIN_INPUT_MAX_PIXELS, DEFAULT_MULTI_IMAGE_PIXEL_BUDGET // num_images)
 
 
 def _resize_input_to_budget(
