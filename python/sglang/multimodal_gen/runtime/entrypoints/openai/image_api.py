@@ -109,6 +109,22 @@ def _common_image_size(paths: list[str]) -> tuple[int, int] | None:
     return sizes[0] if sizes and all(size == sizes[0] for size in sizes) else None
 
 
+def _image_output_tokens(paths: list[str]) -> int | None:
+    """Count one output token per 16x16 pixels, flooring after summing images.
+
+    Read final files before cloud upload can remove them. If any dimensions are
+    unavailable, omit the count rather than reporting a partial output total.
+    """
+    pixels = 0
+    for path in paths:
+        try:
+            with Image.open(path) as image:
+                pixels += image.width * image.height
+        except (OSError, ValueError):
+            return None
+    return pixels // 256
+
+
 async def _upload_and_cleanup_images(paths: list[str]) -> list[str | None]:
     return await asyncio.gather(
         *(cloud_storage.upload_and_cleanup(path) for path in paths)
@@ -190,6 +206,7 @@ def _build_image_response_kwargs(
     is_persistent: bool = True,
     resize: str | None = None,
     image_size: tuple[int, int] | None = None,
+    output_tokens: int | None = None,
 ) -> dict:
     """Build ImageResponse data list.
 
@@ -250,6 +267,14 @@ def _build_image_response_kwargs(
 
     ret = add_common_data_to_response(ret, request_id=request_id, result=result)
     ret.setdefault("usage", {})["image_count"] = len(save_file_path_list)
+    if output_tokens is not None:
+        usage = ret["usage"]
+        input_tokens = usage.get("input_tokens")
+        if input_tokens is None:
+            input_tokens = usage.get("prompt_tokens") or 0
+        usage["output_tokens"] = output_tokens
+        usage["completion_tokens"] = output_tokens
+        usage["total_tokens"] = input_tokens + output_tokens
     if image_size is not None:
         ret["usage"]["width"], ret["usage"]["height"] = image_size
 
@@ -362,6 +387,7 @@ async def generations(
         save_file_path = save_file_path_list[0]
         response_resize = _get_response_resize(sampling, save_file_path)
         image_size = _common_image_size(save_file_path_list)
+        output_tokens = _image_output_tokens(save_file_path_list)
         response_format = request.response_format
         if "response_format" not in request.model_fields_set:
             response_format = (
@@ -414,6 +440,7 @@ async def generations(
             is_persistent=is_persistent,
             resize=response_resize,
             image_size=image_size,
+            output_tokens=output_tokens,
         )
 
     return ImageResponse(**response_kwargs)
@@ -524,6 +551,7 @@ async def edits(
         save_file_path = save_file_path_list[0]
         response_resize = _get_response_resize(sampling, save_file_path)
         image_size = _common_image_size(save_file_path_list)
+        output_tokens = _image_output_tokens(save_file_path_list)
         resp_format = (response_format or "b64_json").lower()
 
         # read b64 before cloud upload may delete the local file
@@ -574,6 +602,7 @@ async def edits(
             is_persistent=is_persistent,
             resize=response_resize,
             image_size=image_size,
+            output_tokens=output_tokens,
         )
 
     return ImageResponse(**response_kwargs)

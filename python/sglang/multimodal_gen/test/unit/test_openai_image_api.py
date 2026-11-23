@@ -20,6 +20,7 @@ from sglang.multimodal_gen.runtime.entrypoints.openai.image_api import (
     _common_image_size,
     _fallback_image_urls,
     _get_response_resize,
+    _image_output_tokens,
     _image_request_model_kwargs,
     _raise_if_image_variant_not_found,
     _runtime_sampling_quality,
@@ -182,10 +183,13 @@ def test_image_response_preserves_sensenova_usage_and_final_size():
         ),
         b64_list=["aGVsbG8="],
         image_size=(2048, 2048),
+        output_tokens=16384,
     )
 
     usage = ImageResponse(**response).model_dump()["usage"]
-    assert usage["total_tokens"] == usage["input_tokens"] == 3
+    assert usage["input_tokens"] == 3
+    assert usage["output_tokens"] == usage["completion_tokens"] == 16384
+    assert usage["total_tokens"] == 16387
     assert usage["input_tokens_details"] == {
         "text_tokens": 3,
         "image_tokens": 1024,
@@ -204,6 +208,30 @@ def test_common_image_size_reads_final_files(tmp_path):
     assert _common_image_size([str(path) for path in paths]) == (64, 32)
     Image.new("RGB", (32, 64)).save(paths[1])
     assert _common_image_size([str(path) for path in paths]) is None
+
+
+def test_image_output_tokens_sums_actual_pixels_before_flooring(tmp_path):
+    paths = [tmp_path / "first.png", tmp_path / "second.png"]
+    Image.new("RGB", (17, 17)).save(paths[0])
+    Image.new("RGB", (15, 15)).save(paths[1])
+    assert _image_output_tokens([str(path) for path in paths]) == 2
+    paths[0].unlink()
+    assert _image_output_tokens([str(path) for path in paths]) is None
+
+
+def test_url_response_serializes_output_tokens_without_input_usage():
+    response = _build_image_response_kwargs(
+        ["output.png"],
+        "url",
+        "a lantern",
+        "req-123",
+        OutputBatch(),
+        cloud_url="https://cdn.example/output.png",
+        output_tokens=4096,
+    )
+    usage = ImageResponse(**response).model_dump()["usage"]
+    assert usage["output_tokens"] == usage["completion_tokens"] == 4096
+    assert usage["total_tokens"] == 4096
 
 
 def test_response_resize_is_only_populated_for_glm_image():

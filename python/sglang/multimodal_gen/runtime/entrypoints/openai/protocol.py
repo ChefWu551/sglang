@@ -14,8 +14,7 @@ def _validate_image_size(size: str) -> str:
         raise ValueError("size must be formatted as WIDTHxHEIGHT") from exc
     if any(value < 512 or value > 4096 or value % 32 for value in (width, height)):
         raise ValueError(
-            "Image width and height must be between 512 and 4096 "
-            "and multiples of 32"
+            "Image width and height must be between 512 and 4096 and multiples of 32"
         )
     return size
 
@@ -49,6 +48,9 @@ class ImageUsage(BaseModel):
     prompt_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
+    # Image output accounting: floor(sum(actual output pixels) / 256).
+    # completion_tokens is an alias for this count, not an additional usage.
+    output_tokens: Optional[int] = None
     prompt_tokens_details: Optional[ImagePromptTokensDetails] = None
     reasoning_tokens: Optional[int] = 0
     image_count: Optional[int] = None
