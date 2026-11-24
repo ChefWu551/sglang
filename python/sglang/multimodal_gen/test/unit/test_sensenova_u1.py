@@ -1833,12 +1833,14 @@ def test_sensenova_u1_generation_stage_uses_sglang_params_and_single_model_batch
     )
     assert tokenized_output.usage == {
         "input_tokens_details": {"text_tokens": 3, "image_tokens": 0},
+        "prompt_tokens": 3,
         "input_tokens": 3,
         "total_tokens": 3,
     }
 
 
-def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs():
+@pytest.mark.parametrize("num_images", [1, 3, 4, 5])
+def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs(num_images):
     sampling = SenseNovaU1SamplingParams(
         prompt="make the sky orange",
         width=2048,
@@ -1857,7 +1859,9 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs():
         num_inference_steps=sampling.num_inference_steps,
         seed=sampling.seed,
         num_outputs_per_prompt=sampling.num_outputs_per_prompt,
-        condition_image=[Image.new("RGBA", (64, 32), (255, 0, 0, 128))],
+        condition_image=[
+            Image.new("RGBA", (64, 32), (255, 0, 0, 128)) for _ in range(num_images)
+        ],
         image_path=None,
         extra=sampling.build_request_extra(),
         metrics=None,
@@ -1865,7 +1869,17 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs():
         generator=torch.Generator().manual_seed(11),
     )
     model = _FakeSenseNovaModel()
-    stage = SenseNovaU1GenerationStage(model=model, tokenizer="tok")
+    original_generate = model.it2i_generate
+
+    def generate_with_usage(tokenizer, prompt, images, **kwargs):
+        kwargs["usage"]["image_tokens"] = sum(
+            (index + 1) * 1024 for index in range(len(images))
+        )
+        return original_generate(tokenizer, prompt, images, **kwargs)
+
+    model.it2i_generate = generate_with_usage
+    tokenizer = lambda text, **kwargs: {"input_ids": text.split()}
+    stage = SenseNovaU1GenerationStage(model=model, tokenizer=tokenizer)
 
     output = stage.forward(batch, server_args=SimpleNamespace())
 
@@ -1873,7 +1887,7 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs():
     assert model.t2i_calls == []
     assert len(model.it2i_calls) == 1
     call = model.it2i_calls[0]
-    assert call["tokenizer"] == "tok"
+    assert call["tokenizer"] is tokenizer
     assert call["prompt"] == "make the sky orange"
     assert call["image_size"] == (2048, 1024)
     assert call["cfg_scale"] == 3.5
@@ -1882,9 +1896,16 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs():
     assert call["num_steps"] == 50
     assert len(call["generators"]) == 1
     assert call["generators"][0].initial_seed() == 11
-    assert len(call["images"]) == 1
+    assert len(call["images"]) == num_images
     assert call["images"][0].mode == "RGB"
     assert call["images"][0].size != (64, 32)
+    image_tokens = 1024 * num_images * (num_images + 1) // 2
+    assert output.usage == {
+        "input_tokens_details": {"text_tokens": 4, "image_tokens": image_tokens},
+        "prompt_tokens": 4,
+        "input_tokens": 4 + image_tokens,
+        "total_tokens": 4 + image_tokens,
+    }
 
 
 def test_sensenova_u1_it2i_preserves_input_aspect_ratio_for_output_size():
@@ -2839,7 +2860,8 @@ def test_sensenova_it2i_guidance_profile_drives_real_loop_branches(
     ]
     assert actual_by_step == expected_by_step
     assert output.shape == (1, 3, 2, 2)
-    assert token_usage["image_tokens"] == 1
+    # The synthetic 1x1 input has fewer than 256 pixels after preprocessing.
+    assert token_usage["image_tokens"] == 0
 
 
 @pytest.mark.parametrize("enabled", [False, True])

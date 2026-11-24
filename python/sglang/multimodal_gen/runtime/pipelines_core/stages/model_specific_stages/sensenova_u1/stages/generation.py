@@ -567,8 +567,9 @@ class SenseNovaU1GenerationStage(PipelineStage):
             },
         }
         if text_tokens is not None:
-            usage["input_tokens"] = text_tokens
-            usage["total_tokens"] = text_tokens
+            usage["prompt_tokens"] = text_tokens
+            usage["input_tokens"] = text_tokens + token_usage.get("image_tokens", 0)
+            usage["total_tokens"] = usage["input_tokens"]
         if think_text is not None:
             usage["think_text"] = think_text
         return OutputBatch(

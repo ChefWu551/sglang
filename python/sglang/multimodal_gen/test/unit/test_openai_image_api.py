@@ -176,8 +176,9 @@ def test_image_response_preserves_sensenova_usage_and_final_size():
         "req-123",
         OutputBatch(
             usage={
-                "total_tokens": 3,
-                "input_tokens": 3,
+                "total_tokens": 1027,
+                "input_tokens": 1027,
+                "prompt_tokens": 3,
                 "input_tokens_details": {"text_tokens": 3, "image_tokens": 1024},
             }
         ),
@@ -187,9 +188,10 @@ def test_image_response_preserves_sensenova_usage_and_final_size():
     )
 
     usage = ImageResponse(**response).model_dump()["usage"]
-    assert usage["input_tokens"] == 3
+    assert usage["input_tokens"] == 1027
+    assert usage["prompt_tokens"] == 3
     assert usage["output_tokens"] == usage["completion_tokens"] == 16384
-    assert usage["total_tokens"] == 16387
+    assert usage["total_tokens"] == 17411
     assert usage["input_tokens_details"] == {
         "text_tokens": 3,
         "image_tokens": 1024,

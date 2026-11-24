@@ -2229,9 +2229,14 @@ class NEOChatModel(PreTrainedModel):
                 )
 
         if usage is not None:
-            usage["image_tokens"] = sum(
-                int(grid_hw[i, 0] * grid_hw[i, 1] * self.downsample_ratio**2)
-                for i in range(grid_hw.shape[0])
+            # API accounting uses 16x16 pixels per token for both input and
+            # output images, independently of the model's merged token grid.
+            usage["image_tokens"] = (
+                sum(
+                    int(grid_hw[i, 0] * grid_hw[i, 1]) * self.patch_size**2
+                    for i in range(grid_hw.shape[0])
+                )
+                // 256
             )
 
         input_embeds_condition, indexes_condition, attention_mask_condition_prefix = (
