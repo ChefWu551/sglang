@@ -107,3 +107,23 @@ def test_build_sampling_params_resolves_size_and_explicit_dimensions(monkeypatch
         build_sampling_params("request-id", **request_fields)
 
         assert (captured["width"], captured["height"]) == expected
+
+
+def test_build_sampling_params_reports_validation_as_bad_request(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(
+        openai_utils,
+        "get_global_server_args",
+        lambda: SimpleNamespace(model_path="model"),
+    )
+
+    def reject(**kwargs):
+        raise ValueError("invalid negative_prompt image control token")
+
+    monkeypatch.setattr(SamplingParams, "from_user_sampling_params_args", reject)
+    with pytest.raises(HTTPException) as error:
+        build_sampling_params("request-id", negative_prompt="<image>")
+    assert error.value.status_code == 400
+    assert "image control token" in error.value.detail

@@ -515,6 +515,7 @@ class SenseNovaU1GenerationStage(PipelineStage):
         )
 
         common_kwargs = dict(
+            negative_prompt=getattr(batch, "negative_prompt", None),
             image_size=image_size,
             cfg_scale=float(batch.guidance_scale),
             cfg_norm=options.cfg_norm,
@@ -533,6 +534,18 @@ class SenseNovaU1GenerationStage(PipelineStage):
                 len(self.tokenizer(prompt, add_special_tokens=False)["input_ids"])
                 for prompt in prompts
             )
+            # Count user text once per prompt, as for positive prompts. Reusing
+            # it in two edit CFG branches does not duplicate logical input usage.
+            negative_prompt = common_kwargs["negative_prompt"]
+            if (
+                negative_prompt
+                and guidance_profile is not SenseNovaGuidanceProfile.CONDITION
+            ):
+                token_usage["text_tokens"] += len(prompts) * len(
+                    self.tokenizer(negative_prompt, add_special_tokens=False)[
+                        "input_ids"
+                    ]
+                )
         common_kwargs["usage"] = token_usage
         with set_forward_context(
             current_timestep=0, attn_metadata=None, forward_batch=batch

@@ -240,12 +240,15 @@ def build_sampling_params(request_id: str, **kwargs) -> SamplingParams:
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     kwargs.setdefault("save_output", True)
 
-    sampling_params = SamplingParams.from_user_sampling_params_args(
-        model_path=server_args.model_path,
-        server_args=server_args,
-        request_id=request_id,
-        **kwargs,
-    )
+    try:
+        sampling_params = SamplingParams.from_user_sampling_params_args(
+            model_path=server_args.model_path,
+            server_args=server_args,
+            request_id=request_id,
+            **kwargs,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # resolve output_quality → output_compression with the correct data_type.
     # SamplingParams.__post_init__ may have resolved with the wrong data_type

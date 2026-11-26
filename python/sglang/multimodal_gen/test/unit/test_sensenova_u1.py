@@ -1786,6 +1786,7 @@ def test_sensenova_u1_generation_stage_uses_sglang_params_and_single_model_batch
     generator = torch.Generator().manual_seed(123)
     batch = SimpleNamespace(
         prompt=sampling.prompt,
+        negative_prompt="watermark",
         width=sampling.width,
         height=sampling.height,
         guidance_scale=sampling.guidance_scale,
@@ -1813,6 +1814,7 @@ def test_sensenova_u1_generation_stage_uses_sglang_params_and_single_model_batch
             ]
         ),
     )
+    assert model.call_kwargs["negative_prompt"] == "watermark"
     assert model.call_count == 1
     assert model.call_kwargs["tokenizer"] == "tok"
     assert model.call_kwargs["prompt"] == "a mountain lake"
@@ -1832,10 +1834,10 @@ def test_sensenova_u1_generation_stage_uses_sglang_params_and_single_model_batch
         batch, server_args=_cache_dit_server_args()
     )
     assert tokenized_output.usage == {
-        "input_tokens_details": {"text_tokens": 3, "image_tokens": 0},
-        "prompt_tokens": 3,
-        "input_tokens": 3,
-        "total_tokens": 3,
+        "input_tokens_details": {"text_tokens": 4, "image_tokens": 0},
+        "prompt_tokens": 4,
+        "input_tokens": 4,
+        "total_tokens": 4,
     }
 
 
@@ -1853,6 +1855,7 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs(num_images):
     )
     batch = SimpleNamespace(
         prompt=sampling.prompt,
+        negative_prompt="watermark",
         width=sampling.width,
         height=sampling.height,
         guidance_scale=sampling.guidance_scale,
@@ -1887,6 +1890,7 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs(num_images):
     assert model.t2i_calls == []
     assert len(model.it2i_calls) == 1
     call = model.it2i_calls[0]
+    assert call["negative_prompt"] == "watermark"
     assert call["tokenizer"] is tokenizer
     assert call["prompt"] == "make the sky orange"
     assert call["image_size"] == (2048, 1024)
@@ -1901,10 +1905,10 @@ def test_sensenova_u1_generation_stage_uses_it2i_for_image_inputs(num_images):
     assert call["images"][0].size != (64, 32)
     image_tokens = 1024 * num_images * (num_images + 1) // 2
     assert output.usage == {
-        "input_tokens_details": {"text_tokens": 4, "image_tokens": image_tokens},
-        "prompt_tokens": 4,
-        "input_tokens": 4 + image_tokens,
-        "total_tokens": 4 + image_tokens,
+        "input_tokens_details": {"text_tokens": 5, "image_tokens": image_tokens},
+        "prompt_tokens": 5,
+        "input_tokens": 5 + image_tokens,
+        "total_tokens": 5 + image_tokens,
     }
 
 
@@ -3654,3 +3658,91 @@ def test_sensenova_npu_kv_compaction_ignores_resolved_backend():
         valid_prefix_lengths=None,
         valid_suffix_len=None,
     )
+
+
+@pytest.mark.parametrize("negative_prompt", [None, "", "watermark, blurry"])
+def test_sensenova_negative_prompt_sampling(negative_prompt):
+    params = SenseNovaU1SamplingParams(negative_prompt=negative_prompt)
+    assert params.negative_prompt == negative_prompt
+    assert "negative_prompt" in params.supported_override_fields()
+
+
+@pytest.mark.parametrize("negative_prompt", [None, "", "watermark, blurry"])
+@pytest.mark.parametrize("editing", [False, True])
+@pytest.mark.parametrize("img_cfg_scale", [1.0, 2.0, 4.0])
+def test_sensenova_negative_prompt_conditions_guidance_prefixes(
+    monkeypatch, negative_prompt, editing, img_cfg_scale
+):
+    # Stop at tokenization: inspect real prefix routing without loading weights.
+    class PrefixesBuilt(Exception):
+        pass
+
+    queries = []
+
+    def build_query(text, **kwargs):
+        queries.append(text)
+        return text
+
+    def stop_at_tokenization(*args):
+        raise PrefixesBuilt
+
+    monkeypatch.setattr(
+        modeling_neo_chat,
+        "load_image_native",
+        lambda *a, **k: (torch.zeros(1, 3), torch.tensor([[1, 1]])),
+    )
+    model = SimpleNamespace(
+        concat_time_token_num=0,
+        config=SimpleNamespace(),
+        patch_size=1,
+        downsample_ratio=1,
+        device=torch.device("cpu"),
+        _notify_layer_offload_phase=lambda phase: None,
+        _build_t2i_query=build_query,
+        _build_t2i_text_inputs=stop_at_tokenization,
+        _build_it2i_inputs=stop_at_tokenization,
+    )
+    tokenizer = SimpleNamespace(convert_tokens_to_ids=lambda token: 0)
+    with pytest.raises(PrefixesBuilt):
+        if editing:
+            NEOChatModel.it2i_generate(
+                model,
+                tokenizer,
+                "make it blue",
+                [object(), object()],
+                cfg_scale=4.0,
+                img_cfg_scale=img_cfg_scale,
+                negative_prompt=negative_prompt,
+            )
+        else:
+            NEOChatModel.t2i_generate(
+                model,
+                tokenizer,
+                "a lake",
+                cfg_scale=4.0,
+                negative_prompt=negative_prompt,
+            )
+    negative_text = negative_prompt or ""
+    if not editing:
+        assert queries == ["a lake", negative_text]
+    else:
+        expected = ["Image-1:<image>\nImage-2:<image>\nmake it blue"]
+        if img_cfg_scale != 4.0:
+            expected.append(
+                "<image><image>" + ("\n" + negative_text if negative_text else "")
+            )
+        if img_cfg_scale != 1.0:
+            expected.append(negative_text)
+        assert queries == expected
+
+
+@pytest.mark.parametrize("token", ["<image>", "<img>", "</img>", "<IMG_CONTEXT>"])
+def test_sensenova_negative_prompt_rejects_image_control_tokens(token):
+    with pytest.raises(ValueError, match="image control token"):
+        SenseNovaU1SamplingParams(negative_prompt=f"blurry {token}")
+
+
+@pytest.mark.parametrize("value", [123, ["blurry"]])
+def test_sensenova_negative_prompt_rejects_non_text(value):
+    with pytest.raises(ValueError, match="string or None"):
+        SenseNovaU1SamplingParams(negative_prompt=value)

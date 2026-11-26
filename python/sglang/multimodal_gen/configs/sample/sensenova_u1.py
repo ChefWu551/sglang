@@ -25,6 +25,7 @@ from sglang.multimodal_gen.runtime.utils.vision import load_image
 
 _PUBLIC_OVERRIDE_FIELDS = {
     "prompt",
+    "negative_prompt",
     "prompt_path",
     "image_path",
     "height",
@@ -73,7 +74,8 @@ class SenseNovaU1SamplingParams(SamplingParams):
     think_mode: bool = DEFAULT_THINK_MODE
     input_max_pixels: int | None = None
     do_resize: bool = True
-    negative_prompt: None = field(default=None, init=False)
+    # Experimental CFG conditioning; None preserves the official empty prefix.
+    negative_prompt: str | None = None
 
     @classmethod
     def supported_override_fields(cls) -> set[str]:
@@ -89,6 +91,16 @@ class SenseNovaU1SamplingParams(SamplingParams):
         }
 
     def __post_init__(self) -> None:
+        if self.negative_prompt is not None:
+            if not isinstance(self.negative_prompt, str):
+                raise ValueError(
+                    "SenseNova-U1 negative_prompt must be a string or None"
+                )
+            for token in ("<image>", "<img>", "</img>", "<IMG_CONTEXT>"):
+                if token in self.negative_prompt:
+                    raise ValueError(
+                        f"SenseNova-U1 negative_prompt must not contain image control token {token!r}"
+                    )
         if isinstance(self.cfg_interval, list):
             self.cfg_interval = tuple(float(x) for x in self.cfg_interval)
         super().__post_init__()

@@ -2151,6 +2151,7 @@ class NEOChatModel(PreTrainedModel):
         seed=0,
         generators=None,
         usage=None,
+        negative_prompt=None,
     ):
         assert cfg_norm in ["none", "global", "channel"]
         self._notify_layer_offload_phase("prefix")
@@ -2204,13 +2205,19 @@ class NEOChatModel(PreTrainedModel):
             system_message=SYSTEM_MESSAGE_FOR_GEN,
             append_text=think_content,
         )
+        # Keep source images in the text-negative branch. The same negative
+        # text also conditions the image-free branch for separate image CFG.
+        negative_text = negative_prompt or ""
+        image_negative_text = "<image>" * len(images)
+        if negative_text:
+            image_negative_text += "\n" + negative_text
         query_img_condition = (
-            self._build_t2i_query("<image>" * len(images), append_text=IMG_START_TOKEN)
+            self._build_t2i_query(image_negative_text, append_text=IMG_START_TOKEN)
             if guidance_profile.needs_image_condition
             else None
         )
         query_uncondition = (
-            self._build_t2i_query("", append_text=IMG_START_TOKEN)
+            self._build_t2i_query(negative_text, append_text=IMG_START_TOKEN)
             if guidance_profile.needs_uncondition
             else None
         )
@@ -2646,6 +2653,7 @@ class NEOChatModel(PreTrainedModel):
         seed=0,
         generators=None,
         usage=None,
+        negative_prompt=None,
     ):
         assert self.concat_time_token_num == 0
         assert cfg_norm in ["cfg_zero_star", "global", "none", "channel"]
@@ -2687,8 +2695,9 @@ class NEOChatModel(PreTrainedModel):
         query_condition = (
             query_conditions[0] if len(query_conditions) == 1 else query_conditions
         )
+        negative_text = negative_prompt or ""
         query_uncondition = (
-            self._build_t2i_query("", append_text=IMG_START_TOKEN)
+            self._build_t2i_query(negative_text, append_text=IMG_START_TOKEN)
             if guidance_profile.needs_uncondition
             else None
         )
