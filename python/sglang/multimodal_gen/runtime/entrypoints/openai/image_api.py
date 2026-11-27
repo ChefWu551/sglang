@@ -461,7 +461,7 @@ async def edits(
     size: Optional[ImageSize] = Form(None),
     output_format: Optional[str] = Form(None),
     background: Optional[str] = Form("auto"),
-    seed: Optional[int] = Form(None),
+    seed: Optional[int] = Form(45),
     generator_device: Optional[str] = Form("cuda"),
     user: Optional[str] = Form(None),
     negative_prompt: Optional[str] = Form(None),
